@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:232526,100:414345&height=200&section=header&text=DeFi%20%26%20Blockchain%20Analytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=AMM%20Design%2C%20On-Chain%20Data%2C%20and%20Natural%20Language%20Querying&descAlignY=55&descSize=16" width="100%"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:232526,100:414345&height=200&section=header&text=DeFi%20Blockchain%20Analytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=AMM%20Design%2C%20On-Chain%20Data%2C%20and%20Natural%20Language%20Querying&descAlignY=55&descSize=16" width="100%"/>
 
 <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&pause=1000&color=8E8E8E&center=true&vCenter=true&width=650&lines=A+constant-product+AMM%2C+built+and+tested+from+the+ground+up.;A+live+on-chain+dashboard+for+watching+it+trade.;A+natural+language+interface+to+Bitcoin+blockchain+data." alt="Typing SVG" />
 
@@ -149,10 +149,6 @@ MIT License — see [LICENSE](LICENSE)
 </td>
 </tr>
 </table>
-
-<br/>
-
-*Open to fintech & blockchain engineering opportunities — feel free to reach out.*
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:414345,100:232526&height=100&section=footer" width="100%"/>
 
