@@ -1,0 +1,16 @@
+{
+  "name": "simple-amm",
+  "version": "1.0.0",
+  "description": "A simplified Uniswap-V2-style automated market maker (Homework 4)",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.1.0",
+    "hardhat": "^2.22.15",
+    "solidity-coverage": "^0.8.13"
+  }
+}
