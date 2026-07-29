@@ -29,7 +29,7 @@ A Bitcoin blockchain data pipeline with natural language querying, powered by Ge
 ## In Action
 
 <p align="center">
-  <img src="./screenshots/chat-ui-1.png" width="90%" alt="Bitcoin Text-to-SQL chat interface, showing generated SQL and results" />
+  <img src="chat-ui-1.png" width="90%" alt="Bitcoin Text-to-SQL chat interface, showing generated SQL and results" />
 </p>
 
 Each question is translated into real SQL, executed against the synced database, and returned with the exact query shown alongside the answer:
@@ -43,7 +43,7 @@ Each question is translated into real SQL, executed against the synced database,
 | "Which block has the most transactions?" | `SELECT hash FROM blocks ORDER BY n_tx DESC LIMIT 1` | full block hash returned |
 
 <p align="center">
-  <img src="./screenshots/chat-ui-2.png" width="90%" alt="Bitcoin Text-to-SQL correctly rejecting an out-of-scope question" />
+  <img src="chat-ui-2.png" width="90%" alt="Bitcoin Text-to-SQL correctly rejecting an out-of-scope question" />
 </p>
 
 The pipeline also correctly **rejects out-of-scope questions** rather than hallucinating an answer — asking *"What is the weather today?"* returns:
@@ -93,7 +93,8 @@ bitcoin-text-to-sql/
 ├── test_cases.py           # Test cases across easy/medium/hard difficulty
 ├── test_results.txt        # Test results
 ├── hard_test_cases.py      # Cases illustrating current system limits
-└── screenshots/            # Chat UI screenshots used in this README
+├── chat-ui-1.png            # Screenshot used in this README
+└── chat-ui-2.png            # Screenshot used in this README
 ```
 
 <img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
