@@ -244,7 +244,7 @@ describe("SimpleAMM", function () {
 
       await expect(amm.connect(bob).swap(addrA, amountIn, expectedOut))
         .to.emit(amm, "Swap")
-        .withArgs(bob.address, addrA, amountIn, expectedOut);
+        .withArgs(bob.address, addrA, amountIn, expectedOut, RES + amountIn, RES - expectedOut);
 
       expect(await amm.reserveA()).to.equal(RES + amountIn);
       expect(await amm.reserveB()).to.equal(RES - expectedOut);
@@ -259,7 +259,7 @@ describe("SimpleAMM", function () {
 
       await expect(amm.connect(bob).swap(addrB, amountIn, expectedOut))
         .to.emit(amm, "Swap")
-        .withArgs(bob.address, addrB, amountIn, expectedOut);
+        .withArgs(bob.address, addrB, amountIn, expectedOut, RES - expectedOut, RES + amountIn);
 
       expect(await amm.reserveB()).to.equal(RES + amountIn);
       expect(await amm.reserveA()).to.equal(RES - expectedOut);
