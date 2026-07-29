@@ -12,6 +12,8 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active%20Development-orange?style=for-the-badge)]()
 
+**[🔗 Live Demo](https://de-fi-blockchain-analytics.vercel.app)** — connect MetaMask on Sepolia and try it yourself
+
 </div>
 
 <br/>
@@ -35,7 +37,9 @@ A Uniswap-V2-style constant-product AMM in Solidity. Deposit, redeem, and swap w
 
 ### [amm-web-ui/](amm-web-ui/)
 
-A web3 interface for the AMM above: pool selection, deposit/redeem/swap, a live reserves-curve chart, and a swap execution-price distribution built from historical on-chain events. Deployed to a public testnet.
+A web3 interface for the AMM above: pool selection, deposit/redeem/swap, a live reserves-curve chart, and a swap execution-price distribution built from historical on-chain events. Deployed to Sepolia and hosted live.
+
+**[Try it live →](https://de-fi-blockchain-analytics.vercel.app)**
 
 </td>
 <td width="33%" valign="top">
@@ -65,6 +69,8 @@ A Bitcoin blockchain data pipeline that answers natural language questions by co
 
 Every action — deposit, redeem, or swap — updates both charts in real time, so the curve's shift and the current point's movement are visible as they happen.
 
+**[Live demo: de-fi-blockchain-analytics.vercel.app](https://de-fi-blockchain-analytics.vercel.app)** (requires MetaMask on Sepolia testnet)
+
 <img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
 
 ## Tech Stack
@@ -78,7 +84,7 @@ Every action — deposit, redeem, or swap — updates both charts in real time, 
 <br/>
 
 **Smart contracts:** Solidity, Hardhat, OpenZeppelin, solidity-coverage
-**Web UI:** JavaScript, Ethers.js / web3 provider, deployed on a public EVM testnet and hosted on Vercel
+**Web UI:** React, Vite, Ethers.js v6, Recharts, deployed on Sepolia testnet and hosted on Vercel
 **Data pipeline:** Python, Flask, SQLite, Gemini API, Chart.js, Bitcoin Core RPC
 
 <img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
@@ -88,7 +94,7 @@ Every action — deposit, redeem, or swap — updates both charts in real time, 
 ```
 DeFi-Blockchain-Analytics/
 ├── simple-amm/            # Constant-product AMM contract + full test suite
-├── amm-web-ui/             # Web3 UI + on-chain analytics for the AMM
+├── amm-web-ui/             # Web3 UI + on-chain analytics for the AMM (live demo above)
 ├── bitcoin-text-to-sql/    # Natural language interface to Bitcoin blockchain data
 └── README.md               # You are here
 ```
@@ -97,7 +103,7 @@ DeFi-Blockchain-Analytics/
 
 ## Status
 
-`simple-amm/` and `bitcoin-text-to-sql/` are complete. `amm-web-ui/` is in active development — see [amm-web-ui/README.md](amm-web-ui/README.md) for current progress.
+All three modules are complete: `simple-amm/`, `bitcoin-text-to-sql/`, and `amm-web-ui/` (deployed live — see [amm-web-ui/README.md](amm-web-ui/README.md) for details).
 
 <img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
 
