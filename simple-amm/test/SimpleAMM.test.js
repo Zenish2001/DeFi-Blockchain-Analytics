@@ -243,9 +243,9 @@ describe("SimpleAMM", function () {
       const balBBefore = await tokenB.balanceOf(bob.address);
 
       await expect(amm.connect(bob).swap(addrA, amountIn, expectedOut))
-        .to.emit(amm, "Swap")
-        .withArgs(trader.address, tokenA.address, amountIn, amountOut, expectedReserveA, expectedReserveB);
-
+      .to.emit(amm, "Swap")
+      .withArgs(bob.address, addrA, amountIn, expectedOut, RES + amountIn, RES - expectedOut);
+      
       expect(await amm.reserveA()).to.equal(RES + amountIn);
       expect(await amm.reserveB()).to.equal(RES - expectedOut);
       expect(await tokenB.balanceOf(bob.address)).to.equal(balBBefore + expectedOut);
@@ -257,10 +257,10 @@ describe("SimpleAMM", function () {
 
       const balABefore = await tokenA.balanceOf(bob.address);
 
-      await expect(amm.connect(bob).swap(addrB, amountIn, expectedOut))
-        .to.emit(amm, "Swap")
-        .withArgs(trader.address, tokenA.address, amountIn, amountOut, expectedReserveA, expectedReserveB);
-
+     await expect(amm.connect(bob).swap(addrB, amountIn, expectedOut))
+     .to.emit(amm, "Swap")
+     .withArgs(bob.address, addrB, amountIn, expectedOut, RES - expectedOut, RES + amountIn);
+      
       expect(await amm.reserveB()).to.equal(RES + amountIn);
       expect(await amm.reserveA()).to.equal(RES - expectedOut);
       expect(await tokenA.balanceOf(bob.address)).to.equal(balABefore + expectedOut);
