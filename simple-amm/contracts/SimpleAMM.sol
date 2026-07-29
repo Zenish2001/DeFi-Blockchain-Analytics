@@ -41,12 +41,34 @@ contract SimpleAMM is ERC20 {
 
     event Deposit(address indexed provider, uint256 amountA, uint256 amountB, uint256 liquidity);
     event Redeem(address indexed provider, uint256 amountA, uint256 amountB, uint256 liquidity);
-    event Swap(address indexed trader, address indexed tokenIn, uint256 amountIn, uint256 amountOut);
+
+    /// @dev reserveA/reserveB were added so the UI can read the pool's exact
+    ///      state at the moment of each swap straight from the event log,
+    ///      without needing an extra RPC call for historical reserves.
+    event Swap(
+        address indexed trader,
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 reserveA,
+        uint256 reserveB
+    );
 
     constructor(address _tokenA, address _tokenB) ERC20("SimpleAMM LP", "SAMM-LP") {
         require(_tokenA != _tokenB, "IDENTICAL_TOKENS");
         tokenA = IERC20(_tokenA);
         tokenB = IERC20(_tokenB);
+    }
+
+    /// @notice Uniswap V2-style accessors so external tooling (Factory, UI)
+    ///         can read the pair's tokens without knowing this contract's
+    ///         internal tokenA/tokenB naming.
+    function token0() external view returns (address) {
+        return address(tokenA);
+    }
+
+    function token1() external view returns (address) {
+        return address(tokenB);
     }
 
     /// @notice Add liquidity by depositing both tokens; mints LP tokens to caller.
@@ -142,7 +164,7 @@ contract SimpleAMM is ERC20 {
             tokenA.safeTransfer(msg.sender, amountOut);
         }
 
-        emit Swap(msg.sender, tokenIn, amountIn, amountOut);
+        emit Swap(msg.sender, tokenIn, amountIn, amountOut, reserveA, reserveB);
     }
 
     /// @dev Integer square root (Babylonian method). Written so its only branch
