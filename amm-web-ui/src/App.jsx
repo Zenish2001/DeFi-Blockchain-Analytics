@@ -1,298 +1,393 @@
-import { useState, useEffect, useCallback } from "react";
-import { BrowserProvider, Contract, parseEther, formatEther } from "ethers";
-import { FACTORY_ABI, AMM_ABI, ERC20_ABI } from "./contracts/abis";
-import ReservesCurveChart from "./ReservesCurveChart";
-import PriceHistoryChart from "./PriceHistoryChart";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BrowserProvider, Contract, formatUnits } from "ethers";
+import { AMM_ABI, ERC20_ABI } from "./contracts/abis";
+import { getReadProvider, loadPools, readReserves, loadEvents, loadBlockTimes } from "./chain";
+import { CHAIN_ID_HEX, EXPLORER, REPO_URL, AUTHOR_URL } from "./config";
+import { toNumber, fmtAmount, fmtPrice, shortAddress, timeAgo } from "./format";
+import CurveChart from "./CurveChart";
+import PriceChart from "./PriceChart";
+import TradePanel from "./TradePanel";
 
-const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS;
-const SEPOLIA_CHAIN_ID = "0xaa36a7"; // 11155111 in hex
+const hasWallet = typeof window !== "undefined" && Boolean(window.ethereum);
 
-function App() {
-  const [account, setAccount] = useState(null);
+export default function App() {
   const [pools, setPools] = useState([]);
-  const [selectedPool, setSelectedPool] = useState(null);
-  const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [poolIndex, setPoolIndex] = useState(0);
+  const [poolState, setPoolState] = useState({ loading: true, error: "" });
+  const [history, setHistory] = useState({ loading: true, error: "", events: [], scannedTo: null });
+  const [blockTimes, setBlockTimes] = useState({});
+  const [wallet, setWallet] = useState({ account: null, onSepolia: true });
+  const [balances, setBalances] = useState(null);
+  const [preview, setPreview] = useState(null);
 
-  // form inputs
-  const [depositA, setDepositA] = useState("");
-  const [depositB, setDepositB] = useState("");
-  const [redeemAmount, setRedeemAmount] = useState("");
-  const [swapAmount, setSwapAmount] = useState("");
-  const [swapDirection, setSwapDirection] = useState("AtoB"); // "AtoB" or "BtoA"
+  const pool = pools[poolIndex] ?? null;
+  const pairAddress = pool?.pairAddress;
+
+  // --- Pools (read-only, no wallet needed) ---------------------------------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const provider = await getReadProvider();
+        const list = await loadPools(provider);
+        if (cancelled) return;
+        setPools(list);
+        setPoolState({ loading: false, error: list.length ? "" : "The factory has no pools yet." });
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setPoolState({ loading: false, error: err.message });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // --- Event history for the selected pool ---------------------------------
+  useEffect(() => {
+    if (!pairAddress) return;
+    let cancelled = false;
+    setHistory({ loading: true, error: "", events: [], scannedTo: null });
+    (async () => {
+      try {
+        const provider = await getReadProvider();
+        const { events, scannedTo } = await loadEvents(provider, pairAddress);
+        if (!cancelled) setHistory({ loading: false, error: "", events, scannedTo });
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setHistory({
+            loading: false,
+            error: "Couldn't load the pool's history from the network. Reload to try again.",
+            events: [],
+            scannedTo: null,
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pairAddress]);
+
+  const recent = useMemo(() => history.events.slice(-6).reverse(), [history.events]);
+
+  useEffect(() => {
+    const missing = recent.map((e) => e.blockNumber).filter((n) => !(n in blockTimes));
+    if (missing.length === 0) return;
+    getReadProvider()
+      .then((p) => loadBlockTimes(p, missing))
+      .then((t) => setBlockTimes((prev) => ({ ...prev, ...t })))
+      .catch(() => {});
+  }, [recent, blockTimes]);
+
+  // --- Wallet ---------------------------------------------------------------
+  const syncWallet = useCallback(async (accounts) => {
+    if (!hasWallet) return;
+    const chainId = await window.ethereum.request({ method: "eth_chainId" });
+    setWallet({ account: accounts?.[0] ?? null, onSepolia: chainId === CHAIN_ID_HEX });
+  }, []);
+
+  useEffect(() => {
+    if (!hasWallet) return;
+    // eth_accounts never opens a popup; it only reports an existing connection.
+    const resync = () =>
+      window.ethereum.request({ method: "eth_accounts" }).then(syncWallet).catch(() => {});
+    resync();
+    window.ethereum.on?.("accountsChanged", syncWallet);
+    window.ethereum.on?.("chainChanged", resync);
+    return () => {
+      window.ethereum.removeListener?.("accountsChanged", syncWallet);
+      window.ethereum.removeListener?.("chainChanged", resync);
+    };
+  }, [syncWallet]);
+
+  async function switchToSepolia() {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: CHAIN_ID_HEX }],
+    });
+  }
+
+  async function connectWallet() {
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (chainId !== CHAIN_ID_HEX) await switchToSepolia();
+    await syncWallet(accounts);
+  }
+
+  const loadBalances = useCallback(async () => {
+    if (!wallet.account || !wallet.onSepolia || !pool) {
+      setBalances(null);
+      return;
+    }
+    const provider = await getReadProvider();
+    const a = new Contract(pool.tokenA.address, ERC20_ABI, provider);
+    const b = new Contract(pool.tokenB.address, ERC20_ABI, provider);
+    const lp = new Contract(pool.pairAddress, AMM_ABI, provider);
+    const [balA, balB, balLp] = await Promise.all([
+      a.balanceOf(wallet.account),
+      b.balanceOf(wallet.account),
+      lp.balanceOf(wallet.account),
+    ]);
+    setBalances({ a: balA, b: balB, lp: balLp });
+  }, [wallet.account, wallet.onSepolia, pool]);
+
+  useEffect(() => {
+    loadBalances().catch((err) => console.error(err));
+  }, [loadBalances]);
+
+  // --- After a transaction: re-read reserves, new events, balances ----------
+  async function refreshAfterTx() {
+    if (!pool) return;
+    const provider = await getReadProvider();
+    const reserves = await readReserves(provider, pool.pairAddress);
+    setPools((prev) => prev.map((p, i) => (i === poolIndex ? { ...p, ...reserves } : p)));
+    if (history.scannedTo != null) {
+      const { events, scannedTo } = await loadEvents(
+        provider,
+        pool.pairAddress,
+        history.scannedTo + 1
+      );
+      setHistory((prev) => ({ ...prev, events: prev.events.concat(events), scannedTo }));
+    }
+  }
 
   async function getSigner() {
     const provider = new BrowserProvider(window.ethereum);
     return provider.getSigner();
   }
 
-  async function connectWallet() {
-    if (!window.ethereum) {
-      setStatus("MetaMask not found. Please install it.");
-      return;
-    }
-    try {
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      setAccount(accounts[0]);
+  // --- Derived numbers ------------------------------------------------------
+  const view = useMemo(() => {
+    if (!pool) return null;
+    const rA = toNumber(pool.reserveA, pool.tokenA.decimals);
+    const rB = toNumber(pool.reserveB, pool.tokenB.decimals);
+    return { rA, rB, price: rA > 0 ? rB / rA : NaN, lpSupply: toNumber(pool.lpSupply) };
+  }, [pool]);
 
-      const chainId = await window.ethereum.request({ method: "eth_chainId" });
-      if (chainId !== SEPOLIA_CHAIN_ID) {
-        setStatus("Switching to Sepolia...");
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: SEPOLIA_CHAIN_ID }],
-        });
-      }
-      setStatus("");
-      await loadPools();
-    } catch (err) {
-      console.error(err);
-      setStatus("Connection failed: " + err.message);
-    }
-  }
+  const swapPrices = useMemo(() => {
+    if (!pool) return [];
+    return history.events
+      .filter((e) => e.kind === "Swap")
+      .map((e) => {
+        const a = toNumber(e.args.reserveA, pool.tokenA.decimals);
+        const b = toNumber(e.args.reserveB, pool.tokenB.decimals);
+        return a > 0 ? b / a : NaN;
+      })
+      .filter(Number.isFinite);
+  }, [history.events, pool]);
 
-  const loadPools = useCallback(async () => {
-    const provider = new BrowserProvider(window.ethereum);
-    const factory = new Contract(FACTORY_ADDRESS, FACTORY_ABI, provider);
-
-    const count = await factory.allPairsLength();
-    const loaded = [];
-
-    for (let i = 0; i < count; i++) {
-      const pairAddress = await factory.allPairs(i);
-      const amm = new Contract(pairAddress, AMM_ABI, provider);
-
-      const token0Addr = await amm.token0();
-      const token1Addr = await amm.token1();
-      const token0 = new Contract(token0Addr, ERC20_ABI, provider);
-      const token1 = new Contract(token1Addr, ERC20_ABI, provider);
-
-      const [symbol0, symbol1, reserveA, reserveB] = await Promise.all([
-        token0.symbol(),
-        token1.symbol(),
-        amm.reserveA(),
-        amm.reserveB(),
-      ]);
-
-      loaded.push({
-        pairAddress,
-        token0Addr,
-        token1Addr,
-        symbol0,
-        symbol1,
-        reserveA,
-        reserveB,
-      });
-    }
-    setPools(loaded);
-    if (loaded.length > 0 && !selectedPool) setSelectedPool(loaded[0]);
-  }, [selectedPool]);
-
-  // Re-read the currently selected pool's reserves (call after any action)
-  async function refreshSelectedPool() {
-    if (!selectedPool) return;
-    const provider = new BrowserProvider(window.ethereum);
-    const amm = new Contract(selectedPool.pairAddress, AMM_ABI, provider);
-    const [reserveA, reserveB] = await Promise.all([amm.reserveA(), amm.reserveB()]);
-    setSelectedPool((prev) => ({ ...prev, reserveA, reserveB }));
-    setPools((prev) =>
-      prev.map((p) => (p.pairAddress === selectedPool.pairAddress ? { ...p, reserveA, reserveB } : p))
-    );
-  }
-
-  // ---------------------------------------------------------------------
-  // Generic "ensure allowance" helper: checks current allowance, and only
-  // sends an approve transaction if it's insufficient. This is the pattern
-  // every ERC20-based dApp needs before a contract can pull a user's tokens.
-  // ---------------------------------------------------------------------
-  async function ensureAllowance(tokenAddress, amountWei) {
-    const signer = await getSigner();
-    const token = new Contract(tokenAddress, ERC20_ABI, signer);
-    const owner = await signer.getAddress();
-
-    const current = await token.allowance(owner, selectedPool.pairAddress);
-    if (current >= amountWei) return; // already approved enough
-
-    setStatus("Requesting approval...");
-    const tx = await token.approve(selectedPool.pairAddress, amountWei);
-    await tx.wait();
-  }
-
-  async function handleDeposit() {
-    if (!selectedPool || !depositA || !depositB) return;
-    setBusy(true);
-    try {
-      const amountA = parseEther(depositA);
-      const amountB = parseEther(depositB);
-
-      await ensureAllowance(selectedPool.token0Addr, amountA);
-      await ensureAllowance(selectedPool.token1Addr, amountB);
-
-      setStatus("Depositing...");
-      const signer = await getSigner();
-      const amm = new Contract(selectedPool.pairAddress, AMM_ABI, signer);
-      const tx = await amm.deposit(amountA, amountB);
-      await tx.wait();
-
-      setStatus("Deposit successful.");
-      setDepositA("");
-      setDepositB("");
-      await refreshSelectedPool();
-    } catch (err) {
-      console.error(err);
-      setStatus("Deposit failed: " + (err.reason || err.message));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRedeem() {
-    if (!selectedPool || !redeemAmount) return;
-    setBusy(true);
-    try {
-      const liquidity = parseEther(redeemAmount);
-      setStatus("Redeeming...");
-      const signer = await getSigner();
-      const amm = new Contract(selectedPool.pairAddress, AMM_ABI, signer);
-      const tx = await amm.redeem(liquidity);
-      await tx.wait();
-
-      setStatus("Redeem successful.");
-      setRedeemAmount("");
-      await refreshSelectedPool();
-    } catch (err) {
-      console.error(err);
-      setStatus("Redeem failed: " + (err.reason || err.message));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSwap() {
-    if (!selectedPool || !swapAmount) return;
-    setBusy(true);
-    try {
-      const amountIn = parseEther(swapAmount);
-      const tokenIn = swapDirection === "AtoB" ? selectedPool.token0Addr : selectedPool.token1Addr;
-
-      await ensureAllowance(tokenIn, amountIn);
-
-      setStatus("Swapping...");
-      const signer = await getSigner();
-      const amm = new Contract(selectedPool.pairAddress, AMM_ABI, signer);
-      // minAmountOut = 0 here for simplicity (no slippage protection in the UI yet)
-      const tx = await amm.swap(tokenIn, amountIn, 0n);
-      await tx.wait();
-
-      setStatus("Swap successful.");
-      setSwapAmount("");
-      await refreshSelectedPool();
-    } catch (err) {
-      console.error(err);
-      setStatus("Swap failed: " + (err.reason || err.message));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (window.ethereum && window.ethereum.selectedAddress) {
-      connectWallet();
-    }
-  }, []);
+  const swapCount = swapPrices.length;
 
   return (
-    <div style={{ fontFamily: "monospace", padding: "40px", maxWidth: "700px", margin: "0 auto" }}>
-      <h1>SimpleAMM</h1>
+    <div className="page">
+      <header className="site-header">
+        <a className="wordmark" href="/">SimpleAMM</a>
+        <nav className="header-links" aria-label="Project links">
+          <a href={REPO_URL} target="_blank" rel="noreferrer">Code on GitHub</a>
+          {pairAddress && (
+            <a href={`${EXPLORER}/address/${pairAddress}`} target="_blank" rel="noreferrer">
+              Contract on Etherscan
+            </a>
+          )}
+        </nav>
+      </header>
 
-      {!account ? (
-        <button onClick={connectWallet} style={{ padding: "10px 20px", fontSize: "16px" }}>
-          Connect Wallet
-        </button>
-      ) : (
-        <p>Connected: {account}</p>
-      )}
+      <main>
+        <section className="intro">
+          <h1>A token exchange I built from scratch in Solidity.</h1>
+          <p>
+            SimpleAMM is an automated market maker in the style of Uniswap v2, running live on the
+            Sepolia test network. Everything on this page is read straight from the contract, so
+            you don't need a wallet to look around. Type an amount in the trade panel to see how
+            it would move the pool.
+          </p>
+        </section>
 
-      {status && <p style={{ color: "#888" }}>{status}</p>}
+        {poolState.loading && <p className="notice">Reading the pool from Sepolia…</p>}
+        {poolState.error && <p className="notice notice-error">{poolState.error}</p>}
 
-      <h2>Available Pools</h2>
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {pools.map((p) => (
-          <li key={p.pairAddress} style={{ marginBottom: "8px" }}>
-            <label>
-              <input
-                type="radio"
-                checked={selectedPool?.pairAddress === p.pairAddress}
-                onChange={() => setSelectedPool(p)}
+        {pool && view && (
+          <>
+            {pools.length > 1 && (
+              <div className="pool-picker">
+                <label htmlFor="pool">Pool</label>
+                <select
+                  id="pool"
+                  value={poolIndex}
+                  onChange={(e) => {
+                    setPoolIndex(Number(e.target.value));
+                    setPreview(null);
+                  }}
+                >
+                  {pools.map((p, i) => (
+                    <option key={p.pairAddress} value={i}>
+                      {p.tokenA.symbol} / {p.tokenB.symbol}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <section className="hero-grid">
+              <div className="panel chart-panel">
+                <div className="panel-head">
+                  <h2>The pool right now</h2>
+                  <p className="panel-sub">
+                    The curve is every balance the pool is allowed to move to. The dot is where it
+                    sits.
+                  </p>
+                </div>
+                <CurveChart
+                  reserveA={view.rA}
+                  reserveB={view.rB}
+                  symbolA={pool.tokenA.symbol}
+                  symbolB={pool.tokenB.symbol}
+                  preview={preview}
+                />
+                <dl className="facts">
+                  <div>
+                    <dt>Price of 1 {pool.tokenA.symbol}</dt>
+                    <dd>
+                      {fmtPrice(view.price)} {pool.tokenB.symbol}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Swaps recorded</dt>
+                    <dd>
+                      {history.loading
+                        ? "Counting…"
+                        : history.error
+                          ? "Unavailable"
+                          : swapCount.toLocaleString("en-US")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Fee per swap</dt>
+                    <dd>0.30%</dd>
+                  </div>
+                  <div>
+                    <dt>LP tokens issued</dt>
+                    <dd>{fmtAmount(view.lpSupply)}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <TradePanel
+                pool={pool}
+                hasWallet={hasWallet}
+                wallet={wallet}
+                balances={balances}
+                onConnect={connectWallet}
+                onSwitchNetwork={switchToSepolia}
+                getSigner={getSigner}
+                onPoolChanged={refreshAfterTx}
+                onBalancesChanged={loadBalances}
+                onPreview={setPreview}
               />
-              {" "}
-              <strong>{p.symbol0}/{p.symbol1}</strong> — reserves: {formatEther(p.reserveA)} / {formatEther(p.reserveB)}
-            </label>
-          </li>
-        ))}
-      </ul>
+            </section>
 
-      {selectedPool && (
-  <>
-    <ReservesCurveChart
-      reserveA={selectedPool.reserveA}
-      reserveB={selectedPool.reserveB}
-      symbolA={selectedPool.symbol0}
-      symbolB={selectedPool.symbol1}
-    />
+            <section className="lower-grid">
+              <div className="panel">
+                <div className="panel-head">
+                  <h2>Price after each swap</h2>
+                  <p className="panel-sub">
+                    {pool.tokenB.symbol} per {pool.tokenA.symbol}, rebuilt from the contract's Swap
+                    event logs.
+                  </p>
+                </div>
+                {history.loading ? (
+                  <p className="empty">Reading swap history from the chain…</p>
+                ) : history.error ? (
+                  <p className="empty empty-error">{history.error}</p>
+                ) : (
+                  <PriceChart
+                    prices={swapPrices}
+                    symbolA={pool.tokenA.symbol}
+                    symbolB={pool.tokenB.symbol}
+                  />
+                )}
+              </div>
 
-    <PriceHistoryChart
-      pairAddress={selectedPool.pairAddress}
-      symbolA={selectedPool.symbol0}
-      symbolB={selectedPool.symbol1}
-    />
+              <div className="panel">
+                <div className="panel-head">
+                  <h2>Recent activity</h2>
+                  <p className="panel-sub">The latest trades and liquidity changes on this pool.</p>
+                </div>
+                {history.loading ? (
+                  <p className="empty">Loading…</p>
+                ) : history.error ? (
+                  <p className="empty empty-error">{history.error}</p>
+                ) : recent.length === 0 ? (
+                  <p className="empty">Nothing yet. The first trade made here will show up in this list.</p>
+                ) : (
+                  <ul className="activity">
+                    {recent.map((e) => (
+                      <li key={`${e.txHash}-${e.logIndex}`}>
+                        <span className="activity-what">{describe(e, pool)}</span>
+                        <span className="activity-meta">
+                          <span className="address">{shortAddress(e.args[0])}</span>
+                          {blockTimes[e.blockNumber] && (
+                            <span>{timeAgo(blockTimes[e.blockNumber])}</span>
+                          )}
+                          <a href={`${EXPLORER}/tx/${e.txHash}`} target="_blank" rel="noreferrer">
+                            View transaction
+                          </a>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
 
-    <hr style={{ margin: "24px 0" }} />
+            <section className="explainer">
+              <h2>How the price is set</h2>
+              <p>
+                The pool holds two tokens and keeps the product of their balances constant:
+                x × y = k. A swap adds one token and takes out the other, so the pool slides along
+                the curve, and the slope where it lands is the new price. Each swap pays a 0.30% fee
+                that stays in the pool, so k grows a little with every trade and liquidity providers
+                collect it when they withdraw.
+              </p>
+              <p>
+                The contracts are tested with Hardhat at 100% line and branch coverage. The two
+                tokens, {pool.tokenA.symbol} and {pool.tokenB.symbol}, are test tokens anyone can
+                mint for free.
+              </p>
+            </section>
+          </>
+        )}
+      </main>
 
-          <h2>Deposit</h2>
-          <input
-            placeholder={`${selectedPool.symbol0} amount`}
-            value={depositA}
-            onChange={(e) => setDepositA(e.target.value)}
-          />
-          <input
-            placeholder={`${selectedPool.symbol1} amount`}
-            value={depositB}
-            onChange={(e) => setDepositB(e.target.value)}
-            style={{ marginLeft: "8px" }}
-          />
-          <button onClick={handleDeposit} disabled={busy} style={{ marginLeft: "8px" }}>
-            Deposit
-          </button>
-
-          <h2>Redeem</h2>
-          <input
-            placeholder="LP token amount"
-            value={redeemAmount}
-            onChange={(e) => setRedeemAmount(e.target.value)}
-          />
-          <button onClick={handleRedeem} disabled={busy} style={{ marginLeft: "8px" }}>
-            Redeem
-          </button>
-
-          <h2>Swap</h2>
-          <select value={swapDirection} onChange={(e) => setSwapDirection(e.target.value)}>
-            <option value="AtoB">{selectedPool.symbol0} → {selectedPool.symbol1}</option>
-            <option value="BtoA">{selectedPool.symbol1} → {selectedPool.symbol0}</option>
-          </select>
-          <input
-            placeholder="Amount in"
-            value={swapAmount}
-            onChange={(e) => setSwapAmount(e.target.value)}
-            style={{ marginLeft: "8px" }}
-          />
-          <button onClick={handleSwap} disabled={busy} style={{ marginLeft: "8px" }}>
-            Swap
-          </button>
-        </>
-      )}
+      <footer className="site-footer">
+        <p>
+          Built by{" "}
+          <a href={AUTHOR_URL} target="_blank" rel="noreferrer">
+            Zenish Borad
+          </a>
+          . Source on{" "}
+          <a href={REPO_URL} target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          .
+        </p>
+      </footer>
     </div>
   );
 }
 
-export default App;
+function describe(event, pool) {
+  const { tokenA, tokenB } = pool;
+  const amt = (v, t) => `${fmtAmount(Number(formatUnits(v, t.decimals)))} ${t.symbol}`;
+  if (event.kind === "Swap") {
+    const inIsA = event.args.tokenIn.toLowerCase() === tokenA.address.toLowerCase();
+    const [tin, tout] = inIsA ? [tokenA, tokenB] : [tokenB, tokenA];
+    return `Swapped ${amt(event.args.amountIn, tin)} for ${amt(event.args.amountOut, tout)}`;
+  }
+  if (event.kind === "Deposit") {
+    return `Added ${amt(event.args.amountA, tokenA)} and ${amt(event.args.amountB, tokenB)}`;
+  }
+  return `Withdrew ${amt(event.args.amountA, tokenA)} and ${amt(event.args.amountB, tokenB)}`;
+}

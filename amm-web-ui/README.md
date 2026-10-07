@@ -74,15 +74,15 @@ npm install
 npm run dev
 ```
 
-Requires a `.env` file with the deployed contract addresses:
+The app works with no `.env` file: it falls back to the deployed Sepolia addresses and public RPC endpoints. Optional settings:
 
 ```
-VITE_FACTORY_ADDRESS=0x...
-VITE_ALPHA_TOKEN_ADDRESS=0x...
-VITE_BETA_TOKEN_ADDRESS=0x...
+VITE_FACTORY_ADDRESS=0x...    # factory to read pools from
+VITE_SEPOLIA_RPC_URL=https://...  # your own RPC, tried first
+VITE_START_BLOCK=1234567      # deployment block; event history is scanned from here
 ```
 
-MetaMask must be installed and set to the Sepolia network.
+Viewing the pool needs no wallet. Trading needs MetaMask on Sepolia.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
 
