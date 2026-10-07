@@ -84,11 +84,31 @@ export async function loadPools(provider) {
 // chunk the RPC rejects is split in half and retried.
 // ---------------------------------------------------------------------------
 const CHUNK = 9_000;
-const PARALLEL = 4;
+const PARALLEL = 2;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One getLogs call with retries. Free public RPCs often answer "too many
+// requests" for a moment, so wait and try again before giving up.
+async function getLogsWithRetry(provider, filter) {
+  let lastErr;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await provider.getLogs(filter);
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || "") + JSON.stringify(err?.info || {});
+      const tooBig = /range|too many (results|blocks)|limit exceeded|query returned more|10000|block range/i.test(msg)
+        && !/rate|429|too many requests/i.test(msg);
+      if (tooBig) throw err; // splitting the range is the fix, not waiting
+      await sleep(600 * 2 ** attempt);
+    }
+  }
+  throw lastErr;
+}
 
 async function getLogsAdaptive(provider, address, from, to) {
   try {
-    return await provider.getLogs({ address, fromBlock: from, toBlock: to });
+    return await getLogsWithRetry(provider, { address, fromBlock: from, toBlock: to });
   } catch (err) {
     if (to - from < 500) throw err;
     const mid = Math.floor((from + to) / 2);

@@ -124,6 +124,9 @@ export default function TradePanel({
       setStatus({ kind: "success", text: doneText, hash: lastHash });
       clear?.();
       await Promise.all([onPoolChanged(), onBalancesChanged()]);
+      // The public RPC that reads balances can be a block or two behind the
+      // wallet's node, so read again shortly after to pick up the change.
+      setTimeout(() => onBalancesChanged().catch(() => {}), 5000);
     } catch (err) {
       console.error(err);
       setStatus({ kind: "error", text: friendlyError(err) });
