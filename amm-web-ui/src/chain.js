@@ -26,14 +26,28 @@ export function getReadProvider() {
             staticNetwork: sepolia,
             batchMaxCount: 1,
           });
-          await provider.getBlockNumber();
+          // Make sure this endpoint really is Sepolia and can see our factory.
+          // A mainnet URL would otherwise "work" but return empty results.
+          const chainId = await provider.send("eth_chainId", []);
+          if (BigInt(chainId) !== BigInt(CHAIN_ID)) {
+            console.warn(`RPC ${url} is on chain ${BigInt(chainId)}, not Sepolia. Skipping it.`);
+            continue;
+          }
+          const code = await provider.getCode(FACTORY_ADDRESS);
+          if (!code || code === "0x") {
+            console.warn(`No factory contract at ${FACTORY_ADDRESS} via ${url}. Skipping it.`);
+            continue;
+          }
           return provider;
         } catch {
           // try the next endpoint
         }
       }
       providerPromise = null;
-      throw new Error("Couldn't reach the Sepolia network. Check your connection and reload.");
+      throw new Error(
+        `Couldn't read the SimpleAMM factory (${FACTORY_ADDRESS}) on Sepolia. ` +
+          "If you just changed VITE_SEPOLIA_RPC_URL or VITE_FACTORY_ADDRESS in Vercel, check that the RPC is a Sepolia URL and the address is the factory."
+      );
     })();
   }
   return providerPromise;
