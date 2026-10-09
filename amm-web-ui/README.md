@@ -1,113 +1,60 @@
-<div align="center">
+# SimpleAMM Web Interface
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:232526,100:414345&height=180&section=header&text=SimpleAMM%20Web3%20UI&fontSize=38&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=A%20React%20Frontend%20for%20an%20On-Chain%20AMM&descAlignY=62&descSize=15" width="100%"/>
+A React app for the [SimpleAMM](../simple-amm/) contracts on Sepolia. Anyone can look at the live pool without a wallet; with MetaMask you can get free test tokens and trade.
 
-[![React](https://img.shields.io/badge/React-Vite-61DAFB?style=for-the-badge&logo=react&logoColor=white)]()
-[![Ethers.js](https://img.shields.io/badge/Ethers.js-v6-363636?style=for-the-badge&logo=ethereum&logoColor=white)]()
-[![Sepolia](https://img.shields.io/badge/Network-Sepolia-9C6ADE?style=for-the-badge)]()
-[![Status](https://img.shields.io/badge/Status-Live-2ea44f?style=for-the-badge)]()
+**[Live demo](https://simpleamm-zenish.vercel.app)**
 
-**[🔗 Live Demo](https://de-fi-blockchain-analytics.vercel.app)** &nbsp;·&nbsp; connect MetaMask on Sepolia to try it
+![SimpleAMM](../docs/simpleamm.png)
 
-</div>
+## Highlights
 
-<br/>
+- **Works without a wallet.** Pool data, charts and activity are read from Sepolia through public RPCs, so visitors see it working immediately.
+- **Trade preview.** Typing an amount moves a point along the x·y=k curve to show where the pool would end up, with the rate, price impact and minimum received.
+- **Full trading with MetaMask:** swap, add liquidity and withdraw, with 1% slippage protection and exact-amount approvals only. A button mints free test tokens.
+- **History from the chain.** Price history and recent activity are rebuilt from the contract's `Swap`, `Deposit` and `Redeem` events with `eth_getLogs`, in chunks with retries to stay within public RPC limits.
+- **Safe defaults.** Before using an RPC, the app checks it really is Sepolia and that the factory contract exists there.
 
-A React frontend for the [SimpleAMM](../simple-amm/) smart contract: select a pool, deposit, redeem, or swap, and watch two live on-chain charts update after every action.
+## Requirements
 
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
+- Node.js 18+ and npm
+- To trade: MetaMask on the Sepolia network and a little free Sepolia ETH for gas
 
-## What It Does
-
-<div align="center">
-
-| Feature | Detail |
-|---|---|
-| **Pool selection** | Reads every available pair directly from a `SimpleAMMFactory` contract, rather than hardcoding a single pool |
-| **Deposit / Redeem / Swap** | Full write actions against the live contract, including the ERC20 approve step required before the AMM can move a user's tokens |
-| **Reserves curve chart** | Plots the constant-product curve (`x·y=k`) with the pool's current position marked on it, computed purely from `reserveA()` / `reserveB()` |
-| **Swap price history chart** | A histogram of past execution prices, reconstructed entirely from on-chain `Swap` event logs via `eth_getLogs`, chunked to respect RPC provider block-range limits |
-
-</div>
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## How Price History Works
-
-The `SimpleAMM` contract's `Swap` event was extended to include `reserveA`/`reserveB` at the moment of each swap:
-
-```solidity
-event Swap(
-    address indexed trader,
-    address indexed tokenIn,
-    uint256 amountIn,
-    uint256 amountOut,
-    uint256 reserveA,
-    uint256 reserveB
-);
-```
-
-This means the execution price for any past swap (`reserveB / reserveA`) can be read directly from the event log itself — no additional historical-state RPC calls are needed to reconstruct it.
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## Tech Stack
-
-<div align="center">
-
-<img src="https://skillicons.dev/icons?i=react,vite,js,solidity,git&theme=dark" />
-
-</div>
-
-<br/>
-
-**Frontend:** React, Vite, Ethers.js v6, Recharts
-**Wallet:** MetaMask
-**Deployment:** Sepolia testnet (contracts), Vercel (frontend)
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## Running Locally
+## Run it
 
 ```bash
 npm install
-npm run dev
+npm run dev        # http://localhost:5173
+npm run build      # production build in dist/
 ```
 
-The app works with no `.env` file: it falls back to the deployed Sepolia addresses and public RPC endpoints. Optional settings:
+The app needs no `.env` file. Optional settings (set them in Vercel for the live site):
 
-```
-VITE_FACTORY_ADDRESS=0x...    # factory to read pools from
-VITE_SEPOLIA_RPC_URL=https://...  # your own RPC, tried first
-VITE_START_BLOCK=1234567      # deployment block; event history is scanned from here
-```
+| Variable | Purpose |
+|---|---|
+| `VITE_FACTORY_ADDRESS` | Factory to read pools from (defaults to the deployed one) |
+| `VITE_SEPOLIA_RPC_URL` | Your own **Sepolia** RPC, tried first |
+| `VITE_START_BLOCK` | Deployment block; history is scanned from here, which makes loading faster |
 
-Viewing the pool needs no wallet. Trading needs MetaMask on Sepolia.
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## Live Contracts (Sepolia)
-
-<div align="center">
+## Deployed contracts (Sepolia)
 
 | Contract | Address |
 |---|---|
 | Factory | `0xA73F929984ceccd98d7d99869A9796168cE78C68` |
-| Alpha Token | `0x541CfaBDeffe4857232A6e887e305180D72cf376` |
-| Beta Token | `0x14bdCF30cc4D52568be4e284103301578c4431c5` |
-| SimpleAMM pair | `0x3dab2449032231BB16e9b0B18379cE74Db8F6316` |
+| Alpha token | `0x541CfaBDeffe4857232A6e887e305180D72cf376` |
+| Beta token | `0x14bdCF30cc4D52568be4e284103301578c4431c5` |
+| Pool (pair) | `0x3dab2449032231BB16e9b0B18379cE74Db8F6316` |
 
-</div>
+## Files
 
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
+| Path | Purpose |
+|---|---|
+| `src/App.jsx` | Page layout, wallet connection, data loading |
+| `src/TradePanel.jsx` | Swap, add liquidity, withdraw, test-token minting |
+| `src/CurveChart.jsx`, `src/PriceChart.jsx` | SVG charts |
+| `src/chain.js` | Read-only RPC, pool and event loading |
+| `src/format.js` | Formatting and the same AMM math as the contract |
+| `src/config.js` | Addresses, RPCs and limits |
 
-## Related
+## Skills shown
 
-- [`../simple-amm/`](../simple-amm/) — the AMM contract this UI connects to
-- [`../bitcoin-text-to-sql/`](../bitcoin-text-to-sql/) — a separate module in this repo
-
-<div align="center">
-
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:414345,100:232526&height=90&section=footer" width="100%"/>
-
-</div>
+React · Vite · Ethers.js v6 · MetaMask · reading event logs · SVG charts · Vercel
