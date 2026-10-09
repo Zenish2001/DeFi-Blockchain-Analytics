@@ -28,7 +28,31 @@ from google import genai
 from google.genai import types
 
 app = Flask(__name__)
-DB_PATH = None
+DB_PATH = os.environ.get("DB_PATH")
+
+# Limits for running on a public server.
+MAX_ROWS = 500              # rows returned to the browser per question
+QUERY_TIMEOUT_SEC = 15      # stop runaway SQL (e.g. a full scan with no LIMIT)
+ASKS_PER_MINUTE = 6         # per visitor IP
+ASKS_PER_DAY = 300          # whole site, protects the Gemini free quota
+_ask_log = {}               # ip -> list of timestamps
+_day = {"date": None, "count": 0}
+
+
+def _rate_limited(ip):
+    now = time.time()
+    today = time.strftime("%Y-%m-%d")
+    if _day["date"] != today:
+        _day["date"], _day["count"] = today, 0
+    if _day["count"] >= ASKS_PER_DAY:
+        return "The demo has hit its daily question limit. Please try again tomorrow."
+    recent = [t for t in _ask_log.get(ip, []) if now - t < 60]
+    if len(recent) >= ASKS_PER_MINUTE:
+        return "Too many questions in a minute. Wait a moment and try again."
+    recent.append(now)
+    _ask_log[ip] = recent
+    _day["count"] += 1
+    return None
 MODEL = "gemini-2.5-flash"
 
 SYSTEM_PROMPT = (
@@ -366,11 +390,18 @@ def generate_sql(question):
 def run_query(sql):
     uri = f"file:{os.path.abspath(DB_PATH)}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
+    deadline = time.time() + QUERY_TIMEOUT_SEC
+    # Returning non-zero from the progress handler aborts the query.
+    conn.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 10_000)
     try:
         cur = conn.execute(sql)
         cols = [c[0] for c in cur.description] if cur.description else []
-        rows = cur.fetchall()
+        rows = cur.fetchmany(MAX_ROWS)
         return cols, rows, None
+    except sqlite3.OperationalError as e:
+        if "interrupted" in str(e):
+            return [], [], f"The query took longer than {QUERY_TIMEOUT_SEC} seconds and was stopped. Try a narrower question."
+        return [], [], str(e)
     except sqlite3.Error as e:
         return [], [], str(e)
     finally:
@@ -406,9 +437,13 @@ def price():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    question = request.json.get("question", "").strip()
+    question = (request.json or {}).get("question", "").strip()[:500]
     if not question:
         return jsonify({"error": "empty question"})
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    limited = _rate_limited(ip)
+    if limited:
+        return jsonify({"error": limited})
     try:
         sql = generate_sql(question)
         if sql == "CANNOT_ANSWER":
@@ -427,7 +462,7 @@ def ask():
 def main():
     global DB_PATH
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", required=True)
+    ap.add_argument("--db", default=DB_PATH, required=DB_PATH is None)
     ap.add_argument("--port", type=int, default=5000)
     args = ap.parse_args()
     DB_PATH = args.db

@@ -1,0 +1,7 @@
+*.db
+*.db.lock
+.env
+__pycache__
+*.pyc
+*.png
+*.pptx
