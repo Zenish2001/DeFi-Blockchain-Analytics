@@ -119,8 +119,8 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--schema", default="schema.sql")
     ap.add_argument("--rpc-url", default=os.environ.get("BITCOIN_RPC_URL", "http://127.0.0.1:8332"))
-    ap.add_argument("--rpc-user", default=os.environ.get("BITCOIN_RPC_USER", "zenish"))
-    ap.add_argument("--rpc-pass", default=os.environ.get("BITCOIN_RPC_PASS", "login@123"))
+    ap.add_argument("--rpc-user", default=os.environ.get("BITCOIN_RPC_USER"))
+    ap.add_argument("--rpc-pass", default=os.environ.get("BITCOIN_RPC_PASS"))
     ap.add_argument("--max-blocks", type=int, default=0)
     args = ap.parse_args()
 

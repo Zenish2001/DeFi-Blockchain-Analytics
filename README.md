@@ -1,161 +1,83 @@
-<div align="center">
+# DeFi & Blockchain Analytics
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:232526,100:414345&height=200&section=header&text=DeFi%20Blockchain%20Analytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=AMM%20Design%2C%20On-Chain%20Data%2C%20and%20Natural%20Language%20Querying&descAlignY=55&descSize=16" width="100%"/>
+Two projects in one repository: a token exchange I built from scratch in Solidity, and a plain-English query tool for real Bitcoin data.
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&pause=1000&color=8E8E8E&center=true&vCenter=true&width=650&lines=A+constant-product+AMM%2C+built+and+tested+from+the+ground+up.;A+live+on-chain+dashboard+for+watching+it+trade.;A+natural+language+interface+to+Bitcoin+blockchain+data." alt="Typing SVG" />
+| Project | What it is | Live | Code |
+|---|---|---|---|
+| **SimpleAMM** | Uniswap v2-style exchange (Solidity) with a web interface | [simpleamm-zenish.vercel.app](https://simpleamm-zenish.vercel.app) | [`simple-amm/`](simple-amm/) · [`amm-web-ui/`](amm-web-ui/) |
+| **Bitcoin Text-to-SQL** | Ask questions about Bitcoin blocks in English, get SQL and data | [Live demo](http://18.224.206.193:8080) | [`bitcoin-text-to-sql/`](bitcoin-text-to-sql/) |
 
-<br/>
+## Skills shown
 
-[![Solidity](https://img.shields.io/badge/Solidity-Hardhat-363636?style=for-the-badge&logo=solidity&logoColor=white)]()
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Coverage](https://img.shields.io/badge/AMM%20Test%20Coverage-100%25-2ea44f?style=for-the-badge)]()
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Active%20Development-orange?style=for-the-badge)]()
-
-**[🔗 Live Demo](https://de-fi-blockchain-analytics.vercel.app)** — connect MetaMask on Sepolia and try it yourself
-
-</div>
-
-<br/>
-
-Three connected pieces of DeFi and blockchain-data engineering: a constant-product AMM implemented and tested from scratch, a live web3 interface for watching it trade in real time, and a natural-language query layer over Bitcoin blockchain data.
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## Modules
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-### [simple-amm/](simple-amm/)
-
-A Uniswap-V2-style constant-product AMM in Solidity. Deposit, redeem, and swap with a 0.30% fee; the pool itself is a real, transferable ERC20 LP token. 100% line and branch test coverage via Hardhat.
-
-</td>
-<td width="33%" valign="top">
-
-### [amm-web-ui/](amm-web-ui/)
-
-A web3 interface for the AMM above: pool selection, deposit/redeem/swap, a live reserves-curve chart, and a swap execution-price distribution built from historical on-chain events. Deployed to Sepolia and hosted live.
-
-**[Try it live →](https://de-fi-blockchain-analytics.vercel.app)**
-
-</td>
-<td width="33%" valign="top">
-
-### [bitcoin-text-to-sql/](bitcoin-text-to-sql/)
-
-A Bitcoin blockchain data pipeline that answers natural language questions by converting them to SQL with Gemini AI, queried against a SQLite database synced from a Bitcoin Core node.
-
-</td>
-</tr>
-</table>
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## How the AMM UI Works
-
-<div align="center">
-
-| Feature | Detail |
+| Area | What these projects use |
 |---|---|
-| Pool selection | Reads available pairs from a factory contract |
-| Actions | Deposit, redeem, and swap, wired directly to the contract |
-| Reserves curve | Live x·y=k chart with the current point plotted from `getReserves()` |
-| Swap price history | Distribution of past execution prices, decoded from on-chain `Swap` events via `eth_getLogs` |
+| Smart contracts | Solidity, ERC-20, constant-product AMM math, Hardhat tests, 100% coverage |
+| Web3 frontend | React, Vite, Ethers.js v6, MetaMask, reading event logs (`eth_getLogs`) |
+| Blockchain data | Bitcoin Core RPC, data modeling (blocks, transactions, inputs, outputs) |
+| Backend and data | Python, SQLite, SQL, Flask |
+| AI | LLM Text-to-SQL with Gemini, prompt design, accuracy benchmark |
+| DevOps | Docker, AWS EC2, Vercel |
 
-</div>
+## Requirements
 
-Every action — deposit, redeem, or swap — updates both charts in real time, so the curve's shift and the current point's movement are visible as they happen.
+| Project | You need |
+|---|---|
+| SimpleAMM contracts | Node.js 18+ and npm |
+| SimpleAMM web interface | Node.js 18+. To trade: MetaMask on Sepolia and a little free Sepolia ETH |
+| Bitcoin Text-to-SQL | Python 3.10+, a [Gemini API key](https://aistudio.google.com/apikey) (free), and a `bitcoin.db` built with `ingest.py` from a Bitcoin Core node |
 
-**[Live demo: de-fi-blockchain-analytics.vercel.app](https://de-fi-blockchain-analytics.vercel.app)** (requires MetaMask on Sepolia testnet)
+---
 
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
+## SimpleAMM
 
-## Tech Stack
+![SimpleAMM](docs/simpleamm.png)
 
-<div align="center">
+- A constant-product (x·y = k) market maker: deposit, swap and withdraw, with a **0.30% fee** and transferable **ERC-20 LP tokens**.
+- **100% line and branch test coverage** with Hardhat.
+- The web interface reads the pool from Sepolia **without a wallet**, previews any trade on the curve before you send it, and rebuilds price history from the contract's event logs. With MetaMask on Sepolia you can mint free test tokens and trade.
 
-<img src="https://skillicons.dev/icons?i=solidity,python,flask,sqlite,js,html,css,git&theme=dark" />
+```bash
+# contracts and tests
+cd simple-amm && npm install && npx hardhat test && npx hardhat coverage
 
-</div>
+# web interface
+cd amm-web-ui && npm install && npm run dev      # http://localhost:5173
+```
 
-<br/>
+Details: [simple-amm/README.md](simple-amm/README.md) · [amm-web-ui/README.md](amm-web-ui/README.md)
 
-**Smart contracts:** Solidity, Hardhat, OpenZeppelin, solidity-coverage
-**Web UI:** React, Vite, Ethers.js v6, Recharts, deployed on Sepolia testnet and hosted on Vercel
-**Data pipeline:** Python, Flask, SQLite, Gemini API, Chart.js, Bitcoin Core RPC
+---
 
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
+## Bitcoin Text-to-SQL
 
-## Repository Structure
+![Bitcoin Text-to-SQL](docs/bitcoin.png)
+
+- Blocks synced from my own **Bitcoin Core full node** over RPC into a normalized **SQLite** database (blocks, transactions, inputs, outputs).
+- **Gemini** turns a question into SQL, which runs **read-only** with time and row limits. **9 of 12** correct on my benchmark, wrong answers included on the page.
+- Also has a dataset overview, a block and transaction explorer, and a schema browser.
+
+```bash
+cd bitcoin-text-to-sql
+pip install -r requirements.txt
+export GEMINI_API_KEY=your_key
+python chat_ui.py --db bitcoin.db                 # http://localhost:5000
+```
+
+Details: [bitcoin-text-to-sql/README.md](bitcoin-text-to-sql/README.md)
+
+---
+
+## Layout
 
 ```
 DeFi-Blockchain-Analytics/
-├── simple-amm/            # Constant-product AMM contract + full test suite
-├── amm-web-ui/             # Web3 UI + on-chain analytics for the AMM (live demo above)
-├── bitcoin-text-to-sql/    # Natural language interface to Bitcoin blockchain data
-└── README.md               # You are here
+├── simple-amm/            AMM contracts and tests
+├── amm-web-ui/            React interface (live on Vercel)
+└── bitcoin-text-to-sql/   node sync, Text-to-SQL web app, benchmark
 ```
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
-
-## Status
-
-All three modules are complete: `simple-amm/`, `bitcoin-text-to-sql/`, and `amm-web-ui/` (deployed live — see [amm-web-ui/README.md](amm-web-ui/README.md) for details).
-
-<img src="https://capsule-render.vercel.app/api?type=rect&color=0:232526,100:414345&height=3&width=100%"/>
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+MIT, see [LICENSE](LICENSE).
 
-<br/>
-
-<div align="center">
-
-## Get In Touch
-
-<table>
-<tr>
-<td align="center" width="200">
-
-<img src="https://img.icons8.com/fluency/48/user-male-circle.png" width="40"/><br/>
-<b>Zenish Borad</b><br/>
-<sub>Fintech & Blockchain Engineering</sub>
-
-</td>
-<td align="center" width="200">
-
-<a href="https://www.linkedin.com/in/zenish-borad">
-<img src="https://img.icons8.com/fluency/48/linkedin.png" width="40"/><br/>
-<b>LinkedIn</b>
-</a><br/>
-<sub>zenish-borad</sub>
-
-</td>
-<td align="center" width="200">
-
-<a href="https://github.com/Zenish2001">
-<img src="https://img.icons8.com/fluency/48/github.png" width="40"/><br/>
-<b>GitHub</b>
-</a><br/>
-<sub>@Zenish2001</sub>
-
-</td>
-<td align="center" width="200">
-
-<a href="mailto:zenish42@gmail.com">
-<img src="https://img.icons8.com/fluency/48/gmail-new.png" width="40"/><br/>
-<b>Email</b>
-</a><br/>
-<sub>zenish42@gmail.com</sub>
-
-</td>
-</tr>
-</table>
-
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:414345,100:232526&height=100&section=footer" width="100%"/>
-
-</div>
+**Zenish Borad** · [LinkedIn](https://www.linkedin.com/in/zenish-borad) · [GitHub](https://github.com/Zenish2001) · borad.z@northeastern.edu
