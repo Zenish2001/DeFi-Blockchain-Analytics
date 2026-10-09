@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bitcoin Text-to-SQL | Zenish Borad</title>
+  <meta name="description" content="Ask questions about real Bitcoin blocks in plain English. Gemini writes the SQL; it runs read-only on data synced from a Bitcoin Core full node." />
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="/"><img src="{{ url_for('static', filename='favicon.svg') }}" alt="" width="24" height="24" />Bitcoin Text-to-SQL</a>
+    <nav class="nav">
+      <a href="#ask">Ask</a>
+      <a href="#dataset">Dataset</a>
+      <a href="#blocks">Blocks</a>
+      <a href="#schema">Schema</a>
+      <a href="#accuracy">Accuracy</a>
+      <a href="{{ github_url }}" target="_blank" rel="noreferrer">Code</a>
+    </nav>
+    <span class="price" id="btc-price" title="Live BTC price">BTC …</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro" id="ask">
+    <h1>Ask the Bitcoin blockchain a question</h1>
+    <p>
+      Type a question in plain English. Gemini turns it into SQL, and the query runs read-only against
+      real blocks I synced from my own Bitcoin Core full node into a normalized SQLite database.
+      You see the SQL, the result and how long it took.
+    </p>
+    <form id="ask-form" class="ask">
+      <input id="q" type="text" maxlength="500" autocomplete="off" placeholder="e.g. Which 5 transactions moved the most BTC?" />
+      <button class="btn btn-primary" type="submit" id="ask-btn">Ask</button>
+    </form>
+    <div class="chips" id="chips">
+      <span class="chips-label">Try:</span>
+      <button type="button">How many blocks and transactions are in the database?</button>
+      <button type="button">Which 5 transactions moved the most BTC?</button>
+      <button type="button">What is the average fee per transaction in each block?</button>
+      <button type="button">How many outputs of each script type are there?</button>
+      <button type="button">Which address received the most BTC?</button>
+      <button type="button">What will the weather be tomorrow?</button>
+    </div>
+    <p class="fine">Limits on this public demo: 6 questions a minute, 500 rows per answer, 15 seconds per query. Only SELECT queries run.</p>
+    <div id="answers"></div>
+  </section>
+
+  <section class="section" id="dataset">
+    <div class="section-head">
+      <h2>What's in the database</h2>
+      <p class="muted" id="dataset-sub">Computing statistics…</p>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Transactions per block</h3>
+        <div id="chart-tx" class="chart"></div>
+      </div>
+      <div class="panel">
+        <h3>Fees paid per block (BTC)</h3>
+        <div id="chart-fees" class="chart"></div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Outputs by script type</h3>
+        <div id="types"></div>
+      </div>
+      <div class="panel">
+        <h3>Notable transactions</h3>
+        <div id="notable"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="blocks">
+    <div class="section-head">
+      <h2>Block explorer</h2>
+      <p class="muted">Every block in the database. Click one to see its largest transactions, then click a transaction for its inputs and outputs.</p>
+    </div>
+    <div class="panel table-panel">
+      <div class="table-wrap blocks-wrap">
+        <table class="table">
+          <thead><tr><th class="r">Height</th><th>Mined (UTC)</th><th class="r">Transactions</th><th class="r">Size</th><th class="r">Fees (BTC)</th></tr></thead>
+          <tbody id="block-rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="schema">
+    <div class="section-head">
+      <h2>Schema</h2>
+      <p class="muted">Four tables built from Bitcoin Core's <code>getblock</code> output (verbosity 2). This is also what Gemini sees when it writes SQL.</p>
+    </div>
+    <div class="schema" id="schema-cards"></div>
+  </section>
+
+  <section class="section" id="accuracy">
+    <div class="section-head">
+      <h2>How accurate is it?</h2>
+      <p class="muted" id="acc-sub">I wrote 12 test questions with known answers (easy to hard) and compared Gemini's SQL results against mine.</p>
+    </div>
+    <div class="panel table-panel">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th class="r">#</th><th>Level</th><th>Question</th><th>Result</th><th></th></tr></thead>
+          <tbody id="bench-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section how">
+    <h2>How it works</h2>
+    <ol>
+      <li><strong>Sync.</strong> <code>ingest.py</code> calls my Bitcoin Core node over RPC (<code>getblock</code>, verbosity 2) and writes blocks, transactions, inputs and outputs into SQLite.</li>
+      <li><strong>Prompt.</strong> Your question and the database schema go to Gemini 2.5 Flash, which must answer with SQL only, or <code>CANNOT_ANSWER</code> if the question isn't about this data.</li>
+      <li><strong>Check.</strong> Only a single SELECT is allowed, on a read-only connection, with a time and row limit.</li>
+      <li><strong>Show.</strong> The SQL, the rows, a chart when it fits, and timings come back to this page.</li>
+    </ol>
+  </section>
+</main>
+
+<footer class="wrap footer">
+  Made by <a href="https://www.linkedin.com/in/zenish-borad" target="_blank" rel="noreferrer">Zenish Borad</a>.
+  Python, Bitcoin Core RPC, SQLite, Flask and the Gemini API.
+</footer>
+
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-back" data-close></div>
+  <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <button class="link" id="drawer-back" type="button" hidden>← Back</button>
+      <h2 id="drawer-title">Details</h2>
+      <button class="close" type="button" data-close aria-label="Close">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

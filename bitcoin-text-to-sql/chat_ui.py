@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
 """
-chat_ui.py - Web-based Chat UI for Bitcoin Text-to-SQL Pipeline.
+chat_ui.py - Web UI for the Bitcoin Text-to-SQL pipeline.
 
-Features:
-  - Clean white + blue modern chat interface
-  - Auto-generates SQL and executes on bitcoin.db
-  - Chart generation for numerical results
-  - Bitcoin price display
-  - LLM rejection for unanswerable questions
+  - Ask in plain English: Gemini writes SQLite, which runs read-only
+    against bitcoin.db (blocks synced from a Bitcoin Core full node).
+  - Dataset overview, block and transaction explorer, schema browser,
+    and the 12-question accuracy benchmark from test_results.txt.
 
 Usage:
-  pip3 install flask google-genai requests
+  pip3 install -r requirements.txt
   export GEMINI_API_KEY=your_key
-  python3 chat_ui.py --db /Users/zenishborad/Assignment3/bitcoin.db
-  Open browser at http://localhost:5000
+  python3 chat_ui.py --db /path/to/bitcoin.db
+  Open http://localhost:5000
 """
 
 import argparse
+import threading
 import os
 import re
 import sqlite3
 import time
 
 import requests
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, abort, jsonify, render_template, request
 from google import genai
 from google.genai import types
 
 app = Flask(__name__)
+app.json.sort_keys = False
+HERE = os.path.dirname(os.path.abspath(__file__))
+GITHUB_URL = "https://github.com/Zenish2001/DeFi-Blockchain-Analytics/tree/main/bitcoin-text-to-sql"
 DB_PATH = os.environ.get("DB_PATH")
 
 # Limits for running on a public server.
@@ -65,303 +67,22 @@ SYSTEM_PROMPT = (
     "respond with exactly: CANNOT_ANSWER"
 )
 
-HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bitcoin Text-to-SQL</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f0f4f8;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-  header {
-    background: #ffffff;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 14px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  }
-  .header-left { display: flex; align-items: center; gap: 10px; }
-  .logo {
-    width: 32px; height: 32px; background: #2563eb;
-    border-radius: 8px; display: flex; align-items: center;
-    justify-content: center; color: white; font-weight: 700; font-size: 14px;
-  }
-  header h1 { font-size: 1.05em; font-weight: 600; color: #1e293b; }
-  header p { font-size: 0.8em; color: #64748b; }
-  .price-badge {
-    background: #eff6ff; color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-    padding: 6px 14px; border-radius: 20px;
-    font-weight: 600; font-size: 0.88em;
-  }
-  #chat-container {
-    flex: 1; overflow-y: auto;
-    padding: 24px; display: flex;
-    flex-direction: column; gap: 16px;
-  }
-  .message { display: flex; gap: 10px; max-width: 85%; }
-  .message.user { align-self: flex-end; flex-direction: row-reverse; }
-  .message.bot { align-self: flex-start; }
-  .avatar {
-    width: 32px; height: 32px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 600; flex-shrink: 0;
-  }
-  .avatar.bot { background: #dbeafe; color: #1d4ed8; }
-  .avatar.user { background: #2563eb; color: white; }
-  .bubble {
-    padding: 12px 16px; border-radius: 14px;
-    font-size: 0.92em; line-height: 1.55;
-  }
-  .message.user .bubble {
-    background: #2563eb; color: white;
-    border-bottom-right-radius: 4px;
-  }
-  .message.bot .bubble {
-    background: #ffffff; color: #1e293b;
-    border: 1px solid #e2e8f0;
-    border-bottom-left-radius: 4px;
-  }
-  .sql-box {
-    background: #f8fafc; border: 1px solid #e2e8f0;
-    border-left: 3px solid #2563eb;
-    border-radius: 6px; padding: 10px 12px;
-    font-family: 'SF Mono', 'Monaco', monospace;
-    font-size: 0.82em; color: #334155;
-    margin-top: 8px; overflow-x: auto;
-    white-space: pre-wrap; word-break: break-all;
-  }
-  .answer-value {
-    font-size: 1.4em; font-weight: 700;
-    color: #2563eb; margin-top: 8px;
-  }
-  table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 0.85em; }
-  th { background: #eff6ff; color: #1e40af; padding: 7px 10px; text-align: left; font-weight: 600; }
-  td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; color: #334155; }
-  tr:last-child td { border-bottom: none; }
-  .chart-wrap { margin-top: 12px; max-height: 220px; }
-  .reject { color: #dc2626; font-weight: 600; }
-  .sql-label {
-    font-size: 0.75em; font-weight: 600; color: #64748b;
-    text-transform: uppercase; letter-spacing: 0.05em;
-    margin-top: 8px;
-  }
-  .examples {
-    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
-  }
-  .ex-btn {
-    background: #f8fafc; border: 1px solid #e2e8f0;
-    color: #2563eb; padding: 6px 12px; border-radius: 20px;
-    font-size: 0.82em; cursor: pointer; font-weight: 500;
-    transition: all 0.15s;
-  }
-  .ex-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
-  .loading { color: #94a3b8; font-style: italic; }
-  #input-area {
-    padding: 16px 24px; background: #ffffff;
-    border-top: 1px solid #e2e8f0;
-    display: flex; gap: 10px; align-items: center;
-  }
-  #question-input {
-    flex: 1; padding: 11px 18px; border-radius: 24px;
-    border: 1px solid #e2e8f0; background: #f8fafc;
-    color: #1e293b; font-size: 0.95em; outline: none;
-    transition: border 0.15s;
-  }
-  #question-input:focus { border-color: #2563eb; background: #fff; }
-  #send-btn {
-    background: #2563eb; color: white; border: none;
-    padding: 11px 22px; border-radius: 24px;
-    font-weight: 600; cursor: pointer; font-size: 0.95em;
-    transition: background 0.15s;
-  }
-  #send-btn:hover { background: #1d4ed8; }
-</style>
-</head>
-<body>
-<header>
-  <div class="header-left">
-    <div class="logo">₿</div>
-    <div>
-      <h1>Bitcoin Text-to-SQL</h1>
-      <p>Ask questions about the blockchain in plain English</p>
-    </div>
-  </div>
-  <div class="price-badge" id="price-badge">Loading...</div>
-</header>
+def connect_ro():
+    """Read-only connection with a time limit on every query."""
+    uri = f"file:{os.path.abspath(DB_PATH)}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-<div id="chat-container">
-  <div class="message bot">
-    <div class="avatar bot">₿</div>
-    <div class="bubble">
-      <strong>Welcome!</strong> Ask me anything about the Bitcoin blockchain database.
-      <div class="examples">
-        <button class="ex-btn" onclick="ask('How many blocks are there?')">How many blocks?</button>
-        <button class="ex-btn" onclick="ask('What is the highest block height?')">Highest block?</button>
-        <button class="ex-btn" onclick="ask('How many transactions are there?')">Total transactions?</button>
-        <button class="ex-btn" onclick="ask('Which block has the most transactions?')">Busiest block?</button>
-        <button class="ex-btn" onclick="ask('What is the largest output value in BTC?')">Largest output?</button>
-        <button class="ex-btn" onclick="ask('What is the weather today?')">Weather? (test rejection)</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="input-area">
-  <input type="text" id="question-input" placeholder="Ask a question about Bitcoin..."
-    onkeypress="if(event.key==='Enter') sendMessage()">
-  <button id="send-btn" onclick="sendMessage()">Ask</button>
-</div>
-
-<script>
-  fetch('/price').then(r=>r.json()).then(d=>{
-    document.getElementById('price-badge').textContent = d.price
-      ? 'BTC $' + Number(d.price).toLocaleString()
-      : 'Price unavailable';
-  }).catch(()=>{ document.getElementById('price-badge').textContent = 'Price unavailable'; });
-
-  function ask(q) {
-    document.getElementById('question-input').value = q;
-    sendMessage();
-  }
-
-  function sendMessage() {
-    const inp = document.getElementById('question-input');
-    const q = inp.value.trim();
-    if (!q) return;
-    inp.value = '';
-    addMsg(q, 'user');
-    const lid = 'l' + Date.now();
-    addMsg('Thinking...', 'bot', lid, true);
-    fetch('/ask', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({question: q})
-    }).then(r=>r.json()).then(d=>{
-      document.getElementById(lid)?.remove();
-      renderBot(d);
-    }).catch(e=>{
-      document.getElementById(lid)?.remove();
-      addMsg('Error: ' + e.message, 'bot');
-    });
-  }
-
-  function addMsg(text, type, id, loading) {
-    const c = document.getElementById('chat-container');
-    const wrap = document.createElement('div');
-    wrap.className = 'message ' + type;
-    if (id) wrap.id = id;
-    const av = document.createElement('div');
-    av.className = 'avatar ' + type;
-    av.textContent = type === 'user' ? 'You' : '₿';
-    const bub = document.createElement('div');
-    bub.className = 'bubble' + (loading ? ' loading' : '');
-    bub.textContent = text;
-    wrap.appendChild(av);
-    wrap.appendChild(bub);
-    c.appendChild(wrap);
-    c.scrollTop = c.scrollHeight;
-  }
-
-  function renderBot(data) {
-    const c = document.getElementById('chat-container');
-    const wrap = document.createElement('div');
-    wrap.className = 'message bot';
-    const av = document.createElement('div');
-    av.className = 'avatar bot';
-    av.textContent = '₿';
-    const bub = document.createElement('div');
-    bub.className = 'bubble';
-
-    if (data.cannot_answer) {
-      bub.innerHTML = '<span class="reject">This question cannot be answered from the Bitcoin database.</span>';
-    } else if (data.error) {
-      bub.innerHTML = '<span class="reject">Error: ' + esc(data.error) + '</span>';
-    } else {
-      let h = '';
-      if (data.sql) {
-        h += '<div class="sql-label">Generated SQL</div>';
-        h += '<div class="sql-box">' + esc(data.sql) + '</div>';
-      }
-      if (data.rows && data.rows.length > 0) {
-        if (data.rows.length === 1 && data.cols.length === 1) {
-          h += '<div class="answer-value">' + esc(String(data.rows[0][0])) + '</div>';
-        } else {
-          h += '<table><tr>' + data.cols.map(c=>'<th>'+esc(c)+'</th>').join('') + '</tr>';
-          data.rows.slice(0,10).forEach(row=>{
-            h += '<tr>' + row.map(cell=>'<td>'+esc(String(cell))+'</td>').join('') + '</tr>';
-          });
-          h += '</table>';
-          if (data.chart) {
-            const cid = 'chart' + Date.now();
-            h += '<div class="chart-wrap"><canvas id="' + cid + '"></canvas></div>';
-            setTimeout(()=>makeChart(cid, data.chart), 100);
-          }
-        }
-      } else {
-        h += '<div style="color:#94a3b8; margin-top:6px; font-size:0.9em;">No results found.</div>';
-      }
-      bub.innerHTML = h;
-    }
-    wrap.appendChild(av);
-    wrap.appendChild(bub);
-    c.appendChild(wrap);
-    c.scrollTop = c.scrollHeight;
-  }
-
-  function makeChart(id, cd) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    new Chart(el, {
-      type: 'bar',
-      data: {
-        labels: cd.labels,
-        datasets: [{
-          label: cd.dataset_label,
-          data: cd.values,
-          backgroundColor: '#bfdbfe',
-          borderColor: '#2563eb',
-          borderWidth: 1.5,
-          borderRadius: 4
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { labels: { color: '#334155', font: { size: 12 } } } },
-        scales: {
-          x: { ticks: { color: '#64748b' }, grid: { color: '#f1f5f9' } },
-          y: { ticks: { color: '#64748b' }, grid: { color: '#f1f5f9' } }
-        }
-      }
-    });
-  }
-
-  function esc(t) {
-    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-</script>
-</body>
-</html>
-"""
 
 def extract_schema(db_path):
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True)
     rows = conn.execute(
         "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type DESC"
     ).fetchall()
     conn.close()
     return "\n".join(r[0].strip() + ";" for r in rows)
+
 
 def clean_sql(text):
     text = text.strip()
@@ -372,10 +93,11 @@ def clean_sql(text):
     text = re.sub(r"^(sqlite|sql|here\s+is.*?:|answer:)\s*", "", text, flags=re.IGNORECASE).strip()
     lines = text.split("\n")
     for i, line in enumerate(lines):
-        if line.strip().upper().startswith(("SELECT","WITH","INSERT","UPDATE","DELETE","CREATE","DROP")):
+        if line.strip().upper().startswith(("SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP")):
             text = "\n".join(lines[i:])
             break
     return text.strip()
+
 
 def generate_sql(question):
     schema = extract_schema(DB_PATH)
@@ -387,53 +109,269 @@ def generate_sql(question):
     )
     return clean_sql(resp.text)
 
+
+def is_read_only(sql):
+    """Only a single SELECT/WITH statement may run. The connection is also
+    opened read-only, so this is a second line of defence."""
+    s = sql.strip().rstrip(";").strip()
+    if ";" in s:
+        return False
+    return bool(re.match(r"^(select|with)\b", s, flags=re.IGNORECASE))
+
+
 def run_query(sql):
-    uri = f"file:{os.path.abspath(DB_PATH)}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
+    conn = sqlite3.connect(f"file:{os.path.abspath(DB_PATH)}?mode=ro", uri=True)
     deadline = time.time() + QUERY_TIMEOUT_SEC
     # Returning non-zero from the progress handler aborts the query.
     conn.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 10_000)
     try:
         cur = conn.execute(sql)
         cols = [c[0] for c in cur.description] if cur.description else []
-        rows = cur.fetchmany(MAX_ROWS)
-        return cols, rows, None
+        rows = cur.fetchmany(MAX_ROWS + 1)
+        capped = len(rows) > MAX_ROWS
+        return cols, rows[:MAX_ROWS], capped, None
     except sqlite3.OperationalError as e:
         if "interrupted" in str(e):
-            return [], [], f"The query took longer than {QUERY_TIMEOUT_SEC} seconds and was stopped. Try a narrower question."
-        return [], [], str(e)
+            return [], [], False, f"The query took longer than {QUERY_TIMEOUT_SEC} seconds and was stopped. Try a narrower question."
+        return [], [], False, str(e)
     except sqlite3.Error as e:
-        return [], [], str(e)
+        return [], [], False, str(e)
     finally:
         conn.close()
+
 
 def should_chart(cols, rows):
     if len(rows) < 2 or len(cols) < 2:
         return None
     try:
-        labels = [str(r[0]) for r in rows[:10]]
-        values = [float(r[1]) for r in rows[:10]]
+        labels = [str(r[0]) for r in rows[:20]]
+        values = [float(r[1]) for r in rows[:20]]
         return {"labels": labels, "values": values, "dataset_label": cols[1]}
     except (ValueError, TypeError):
         return None
 
+
+# ------------------------------------------------------------- overview
+# Computed once in the background at startup: the database is read-only,
+# so the numbers never change while the server runs.
+_overview = {"ready": False, "error": None, "data": None}
+
+
+def compute_overview():
+    try:
+        t0 = time.time()
+        conn = connect_ro()
+        q = lambda sql, *a: conn.execute(sql, a).fetchone()  # noqa: E731
+        b = q("SELECT COUNT(*) n, MIN(height) lo, MAX(height) hi, MIN(time) t0, MAX(time) t1, "
+              "SUM(size) bytes FROM blocks")
+        tx = q("SELECT COUNT(*) n, SUM(fee) fees, AVG(fee) avg_fee, AVG(vsize) avg_vsize, "
+               "SUM(CASE WHEN tx_index = 0 THEN 1 ELSE 0 END) coinbase FROM transactions")
+        outs = q("SELECT COUNT(*) n, SUM(value) total FROM tx_outputs")
+        ins = q("SELECT COUNT(*) n FROM tx_inputs")
+        addrs = q("SELECT COUNT(DISTINCT address) n FROM tx_outputs WHERE address IS NOT NULL")
+        per_block = [dict(r) for r in conn.execute(
+            "SELECT b.height, b.time, b.n_tx, b.size, b.weight, "
+            "COALESCE((SELECT SUM(fee) FROM transactions t WHERE t.block_hash = b.hash), 0) AS fees "
+            "FROM blocks b ORDER BY b.height")]
+        types_ = [dict(r) for r in conn.execute(
+            "SELECT COALESCE(script_pubkey_type, 'unknown') AS type, COUNT(*) AS n, SUM(value) AS value "
+            "FROM tx_outputs GROUP BY 1 ORDER BY n DESC")]
+        biggest = q("SELECT t.txid, SUM(o.value) v, b.height FROM tx_outputs o "
+                    "JOIN transactions t ON t.txid = o.txid JOIN blocks b ON b.hash = t.block_hash "
+                    "WHERE t.tx_index > 0 GROUP BY o.txid ORDER BY v DESC LIMIT 1")
+        top_fee = q("SELECT t.txid, t.fee, t.vsize, b.height FROM transactions t "
+                    "JOIN blocks b ON b.hash = t.block_hash WHERE t.fee IS NOT NULL ORDER BY t.fee DESC LIMIT 1")
+        counts = {}
+        for name in ("blocks", "transactions", "tx_inputs", "tx_outputs"):
+            counts[name] = q(f"SELECT COUNT(*) FROM {name}")[0]
+        conn.close()
+        _overview["data"] = {
+            "blocks": b["n"], "height_min": b["lo"], "height_max": b["hi"],
+            "time_min": b["t0"], "time_max": b["t1"], "block_bytes": b["bytes"],
+            "transactions": tx["n"], "coinbase_txs": tx["coinbase"],
+            "total_fees_btc": tx["fees"], "avg_fee_btc": tx["avg_fee"], "avg_vsize": tx["avg_vsize"],
+            "outputs": outs["n"], "inputs": ins["n"], "output_value_btc": outs["total"],
+            "addresses": addrs["n"],
+            "db_mb": round(os.path.getsize(DB_PATH) / 1e6),
+            "per_block": per_block, "output_types": types_,
+            "largest_tx": dict(biggest) if biggest else None,
+            "highest_fee_tx": dict(top_fee) if top_fee else None,
+            "table_counts": counts,
+            "computed_in_s": round(time.time() - t0, 1),
+        }
+        _overview["ready"] = True
+    except Exception as e:  # keep the page usable even if stats fail
+        _overview["error"] = str(e)
+        _overview["ready"] = True
+
+
+def table_columns():
+    conn = connect_ro()
+    out = []
+    for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+        cols = [{"name": c["name"], "type": c["type"], "pk": bool(c["pk"])}
+                for c in conn.execute(f"PRAGMA table_info({name})")]
+        out.append({"name": name, "columns": cols})
+    conn.close()
+    return out
+
+
+def parse_benchmark():
+    """Read the 12-question benchmark results that test_cases.py wrote."""
+    path = os.path.join(HERE, "test_results.txt")
+    if not os.path.exists(path):
+        return []
+    tests, cur = [], None
+    for line in open(path, encoding="utf-8"):
+        m = re.match(r"=== Test (\d+) \[(\w+)\] ===", line)
+        if m:
+            cur = {"n": int(m.group(1)), "level": m.group(2), "question": "", "expected": "", "llm_sql": "",
+                   "passed": None}
+            tests.append(cur)
+        elif cur is not None:
+            if line.startswith("Q:"):
+                cur["question"] = line[2:].strip()
+            elif line.startswith("SQL:"):
+                cur["expected"] = line[4:].strip()
+            elif line.startswith("LLM SQL:"):
+                cur["llm_sql"] = line[8:].strip()
+            elif line.startswith("RESULT:"):
+                cur["passed"] = "PASS" in line
+    return tests
+
+
+BENCHMARK = parse_benchmark()
+
+
+# ---------------------------------------------------------------- price
+_price = {"t": 0, "data": None}
+
+
 def get_btc_price():
+    if time.time() - _price["t"] < 30 and _price["data"]:
+        return _price["data"]
     try:
         resp = requests.get(
             "https://api.coingecko.com/api/v3/simple/price",
-            params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=5
-        )
-        return resp.json()["bitcoin"]["usd"]
-    except:
-        return None
+            params={"ids": "bitcoin", "vs_currencies": "usd", "include_24hr_change": "true"}, timeout=5)
+        d = resp.json()["bitcoin"]
+        _price.update(t=time.time(), data={"price": d["usd"], "change_24h_pct": d.get("usd_24h_change")})
+    except Exception:
+        try:  # fallback: Coinbase spot (no 24h change)
+            r = requests.get("https://api.coinbase.com/v2/prices/BTC-USD/spot", timeout=5)
+            _price.update(t=time.time(), data={"price": float(r.json()["data"]["amount"]), "change_24h_pct": None})
+        except Exception:
+            pass
+    return _price["data"]
 
+
+# --------------------------------------------------------------- routes
 @app.route("/")
 def index():
-    return render_template_string(HTML)
+    return render_template("index.html", github_url=GITHUB_URL)
+
 
 @app.route("/price")
 def price():
-    return jsonify({"price": get_btc_price()})
+    d = get_btc_price() or {}
+    return jsonify({"price": d.get("price"), "change_24h_pct": d.get("change_24h_pct")})
+
+
+@app.route("/api/overview")
+def overview():
+    return jsonify(_overview)
+
+
+@app.route("/api/schema")
+def schema():
+    counts = (_overview.get("data") or {}).get("table_counts", {})
+    return jsonify([{**t, "rows": counts.get(t["name"])} for t in table_columns()])
+
+
+@app.route("/api/benchmark")
+def benchmark():
+    return jsonify(BENCHMARK)
+
+
+@app.route("/api/blocks")
+def blocks():
+    if _overview.get("data"):
+        return jsonify(list(reversed(_overview["data"]["per_block"])))
+    conn = connect_ro()
+    rows = [dict(r) for r in conn.execute("SELECT height, time, n_tx, size, weight FROM blocks ORDER BY height DESC")]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/block/<int:height>")
+def block(height):
+    conn = connect_ro()
+    b = conn.execute("SELECT * FROM blocks WHERE height = ?", (height,)).fetchone()
+    if not b:
+        conn.close()
+        abort(404)
+    stats = conn.execute(
+        "SELECT COUNT(*) n, SUM(fee) fees, AVG(fee) avg_fee, MAX(fee) max_fee, AVG(vsize) avg_vsize "
+        "FROM transactions WHERE block_hash = ?", (b["hash"],)).fetchone()
+    top = [dict(r) for r in conn.execute(
+        "SELECT t.txid, t.tx_index, t.fee, t.vsize, "
+        "(SELECT SUM(value) FROM tx_outputs o WHERE o.txid = t.txid) AS out_value, "
+        "(SELECT COUNT(*) FROM tx_inputs i WHERE i.txid = t.txid) AS n_in, "
+        "(SELECT COUNT(*) FROM tx_outputs o WHERE o.txid = t.txid) AS n_out "
+        "FROM transactions t WHERE t.block_hash = ? ORDER BY out_value DESC LIMIT 15", (b["hash"],))]
+    coinbase = conn.execute(
+        "SELECT t.txid, (SELECT SUM(value) FROM tx_outputs o WHERE o.txid = t.txid) AS reward "
+        "FROM transactions t WHERE t.block_hash = ? AND t.tx_index = 0", (b["hash"],)).fetchone()
+    conn.close()
+    keep = ["hash", "height", "time", "n_tx", "size", "strippedsize", "weight", "difficulty", "nonce", "bits",
+            "version_hex", "merkleroot", "previousblockhash", "nextblockhash"]
+    return jsonify({"block": {k: b[k] for k in keep if k in b.keys()}, "stats": dict(stats),
+                    "coinbase": dict(coinbase) if coinbase else None, "top_txs": top})
+
+
+@app.route("/api/tx/<txid>")
+def tx(txid):
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", txid):
+        abort(400)
+    conn = connect_ro()
+    t = conn.execute(
+        "SELECT t.txid, t.wtxid, t.tx_index, t.version, t.size, t.vsize, t.weight, t.locktime, t.fee, "
+        "b.height, b.time FROM transactions t JOIN blocks b ON b.hash = t.block_hash WHERE t.txid = ?",
+        (txid.lower(),)).fetchone()
+    if not t:
+        conn.close()
+        abort(404)
+    ins = [dict(r) for r in conn.execute(
+        "SELECT i.vin_index, i.prev_txid, i.prev_vout, i.coinbase IS NOT NULL AS is_coinbase, "
+        "p.value, p.address, p.script_pubkey_type AS type "
+        "FROM tx_inputs i LEFT JOIN tx_outputs p ON p.txid = i.prev_txid AND p.n = i.prev_vout "
+        "WHERE i.txid = ? ORDER BY i.vin_index LIMIT 200", (txid.lower(),))]
+    outs = [dict(r) for r in conn.execute(
+        "SELECT n, value, address, script_pubkey_type AS type FROM tx_outputs WHERE txid = ? ORDER BY n LIMIT 200",
+        (txid.lower(),))]
+    counts = conn.execute("SELECT (SELECT COUNT(*) FROM tx_inputs WHERE txid = ?), "
+                          "(SELECT COUNT(*) FROM tx_outputs WHERE txid = ?)", (txid.lower(), txid.lower())).fetchone()
+    conn.close()
+    return jsonify({"tx": dict(t), "inputs": ins, "outputs": outs, "n_inputs": counts[0], "n_outputs": counts[1]})
+
+
+@app.route("/api/resolve/<h>")
+def resolve(h):
+    """Is this 64-hex string a transaction or a block in the database?"""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", h):
+        abort(400)
+    conn = connect_ro()
+    h = h.lower()
+    if conn.execute("SELECT 1 FROM transactions WHERE txid = ?", (h,)).fetchone():
+        conn.close()
+        return jsonify({"type": "tx", "txid": h})
+    row = conn.execute("SELECT height FROM blocks WHERE hash = ?", (h,)).fetchone()
+    conn.close()
+    if row:
+        return jsonify({"type": "block", "height": row["height"]})
+    return jsonify({"type": None})
+
 
 @app.route("/ask", methods=["POST"])
 def ask():
@@ -445,19 +383,39 @@ def ask():
     if limited:
         return jsonify({"error": limited})
     try:
+        t0 = time.time()
         sql = generate_sql(question)
+        llm_ms = round((time.time() - t0) * 1000)
         if sql == "CANNOT_ANSWER":
-            return jsonify({"cannot_answer": True})
-        cols, rows, err = run_query(sql)
+            return jsonify({"cannot_answer": True, "llm_ms": llm_ms})
+        if not is_read_only(sql):
+            return jsonify({"sql": sql, "error": "Only read-only SELECT queries are allowed here."})
+        t1 = time.time()
+        cols, rows, capped, err = run_query(sql)
+        query_ms = round((time.time() - t1) * 1000)
         if err:
-            return jsonify({"sql": sql, "error": err})
+            return jsonify({"sql": sql, "error": err, "llm_ms": llm_ms})
         return jsonify({
             "sql": sql, "cols": cols,
             "rows": [list(r) for r in rows],
-            "chart": should_chart(cols, rows)
+            "capped": capped, "max_rows": MAX_ROWS,
+            "llm_ms": llm_ms, "query_ms": query_ms,
+            "chart": should_chart(cols, rows),
         })
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+def start_background():
+    if DB_PATH and os.path.exists(DB_PATH):
+        threading.Thread(target=compute_overview, daemon=True).start()
+    else:
+        _overview.update(ready=True, error=f"Database not found at {DB_PATH}")
+
+
+if DB_PATH:  # running under gunicorn with DB_PATH set
+    start_background()
+
 
 def main():
     global DB_PATH
@@ -465,10 +423,13 @@ def main():
     ap.add_argument("--db", default=DB_PATH, required=DB_PATH is None)
     ap.add_argument("--port", type=int, default=5000)
     args = ap.parse_args()
-    DB_PATH = args.db
-    print(f"Starting Bitcoin Text-to-SQL Chat UI...")
+    if args.db != DB_PATH:
+        DB_PATH = args.db
+        start_background()
+    print("Starting Bitcoin Text-to-SQL...")
     print(f"Open http://localhost:{args.port} in your browser")
     app.run(debug=False, port=args.port)
+
 
 if __name__ == "__main__":
     main()
